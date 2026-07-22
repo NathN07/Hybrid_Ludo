@@ -34,4 +34,4 @@ A modern web-based implementation of the classic Ludo board game designed to bri
 ## Local Setup
 
 1. Clone or download this repository.
-2. Open `index.html` directly in any web browser, or serve it using VS Code's **Live Server** extension.
+2. Open `ludo.html` directly in any web browser, or serve it using VS Code's **Live Server** extension.
