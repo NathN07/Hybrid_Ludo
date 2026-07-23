@@ -1,0 +1,1342 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ludo — Local Game</title>
+<script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+<style>
+  :root {
+    --felt: #1f4d3d;
+    --felt-dark: #163a2d;
+    --cream: #f2ead9;
+    --gold: #d4a94e;
+    --red: #d64545;
+    --green: #3fa34d;
+    --yellow: #e0b93d;
+    --blue: #3d7fe0;
+    --ink: #223022;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: radial-gradient(ellipse at center, var(--felt) 0%, var(--felt-dark) 100%);
+    font-family: 'Trebuchet MS', 'Segoe UI', sans-serif;
+    color: var(--cream);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 16px;
+  }
+
+  h1 {
+    font-family: Georgia, serif;
+    letter-spacing: 2px;
+    margin: 8px 0 4px;
+    text-shadow: 0 2px 4px rgba(0,0,0,0.4);
+  }
+
+  .subtitle {
+    opacity: 0.75;
+    font-size: 0.85rem;
+    margin-bottom: 16px;
+  }
+
+  .panel {
+    background: rgba(0,0,0,0.25);
+    border: 1px solid var(--gold);
+    border-radius: 12px;
+    padding: 24px 32px;
+    text-align: center;
+    max-width: 380px;
+  }
+  .panel p { margin-top: 0; opacity: 0.85; }
+
+  .choice-row { display: flex; flex-direction: column; gap: 10px; margin: 16px 0; }
+  .choice-btn {
+    padding: 12px 20px; border-radius: 10px; border: 2px solid var(--gold);
+    background: transparent; color: var(--cream); font-size: 0.95rem; cursor: pointer;
+    text-align: left;
+  }
+  .choice-btn:hover { background: rgba(212,169,78,0.15); }
+  .choice-btn strong { display: block; color: var(--gold); margin-bottom: 2px; }
+
+  .player-count-row { display: flex; gap: 8px; justify-content: center; margin: 16px 0; }
+  .count-btn {
+    width: 44px; height: 44px; border-radius: 50%;
+    border: 2px solid var(--gold); background: transparent; color: var(--cream);
+    font-size: 1.1rem; cursor: pointer; transition: all 0.15s;
+  }
+  .count-btn.active, .count-btn:hover { background: var(--gold); color: var(--ink); }
+  .count-btn:disabled { opacity: 0.25; cursor: default; }
+  .count-btn:disabled:hover { background: transparent; color: var(--cream); }
+  .primary-btn {
+    margin-top: 8px; padding: 10px 28px; border-radius: 24px; border: none;
+    background: var(--gold); color: var(--ink); font-weight: bold; font-size: 1rem;
+    cursor: pointer;
+  }
+  .primary-btn:hover { filter: brightness(1.1); }
+  .primary-btn:disabled { opacity: 0.4; cursor: default; }
+
+  .room-code {
+    font-family: monospace;
+    font-size: 1.3rem;
+    letter-spacing: 1px;
+    background: rgba(0,0,0,0.3);
+    border-radius: 8px;
+    padding: 10px;
+    margin: 12px 0;
+    word-break: break-all;
+    cursor: pointer;
+  }
+  .room-code:hover { background: rgba(0,0,0,0.45); }
+
+  #joinCodeInput {
+    width: 100%;
+    padding: 10px;
+    border-radius: 8px;
+    border: 2px solid var(--gold);
+    background: rgba(255,255,255,0.9);
+    color: var(--ink);
+    font-size: 1rem;
+    margin: 10px 0;
+    text-align: center;
+  }
+
+  .status-line {
+    margin-top: 10px;
+    font-size: 0.85rem;
+    opacity: 0.85;
+  }
+  .status-line.connected { color: #8fdc9a; }
+  .status-line.error { color: #e08787; }
+
+  .test-msg-row { display: flex; gap: 8px; margin-top: 14px; }
+  #testMsgInput {
+    flex: 1; padding: 8px; border-radius: 8px; border: 2px solid var(--gold);
+    background: rgba(255,255,255,0.9); color: var(--ink);
+  }
+  #msgLog {
+    text-align: left; max-height: 100px; overflow-y: auto;
+    background: rgba(0,0,0,0.25); border-radius: 8px; padding: 8px;
+    margin-top: 10px; font-size: 0.82rem;
+  }
+  .back-link {
+    display: inline-block; margin-top: 14px; opacity: 0.6; cursor: pointer; font-size: 0.8rem;
+    text-decoration: underline;
+  }
+
+  #seatList {
+    text-align: left;
+    margin: 12px 0;
+    font-size: 0.88rem;
+  }
+  .seat-row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 5px 8px; border-radius: 6px; margin-bottom: 4px;
+    background: rgba(255,255,255,0.06);
+  }
+  .seat-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
+  .seat-row.pending { opacity: 0.5; font-style: italic; }
+
+  /* ---- Game layout ---- */
+  #game { display: none; flex-direction: column; align-items: center; width: 100%; }
+
+
+  #boardWrap {
+    width: min(92vw, 540px);
+    aspect-ratio: 1 / 1;
+    position: relative;
+  }
+
+  #board {
+    display: grid;
+    grid-template-columns: repeat(15, 1fr);
+    grid-template-rows: repeat(15, 1fr);
+    width: 100%;
+    height: 100%;
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+    border: 3px solid var(--gold);
+  }
+
+  .cell {
+    position: relative;
+    border: 1px solid rgba(0,0,0,0.06);
+  }
+  .cell.track { background: var(--cream); }
+  .cell.hidden { background: transparent; border: none; }
+
+  .cell.yard-red { background: var(--red); }
+  .cell.yard-green { background: var(--green); }
+  .cell.yard-yellow { background: var(--yellow); }
+  .cell.yard-blue { background: var(--blue); }
+
+  .cell.start-red { background: var(--red); }
+  .cell.start-green { background: var(--green); }
+  .cell.start-yellow { background: var(--yellow); }
+  .cell.start-blue { background: var(--blue); }
+
+  .cell.home-red { background: #f3caca; }
+  .cell.home-green { background: #c9e8cd; }
+  .cell.home-yellow { background: #f5e6b0; }
+  .cell.home-blue { background: #c7dcf7; }
+
+  #centerPinwheel {
+    grid-column: 7 / 10;
+    grid-row: 7 / 10;
+    background: conic-gradient(
+      var(--yellow) 0deg 90deg,
+      var(--green) 90deg 180deg,
+      var(--red) 180deg 270deg,
+      var(--blue) 270deg 360deg
+    );
+  }
+
+  .cell.safe-star::after {
+    content: '★';
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--gold);
+    font-size: 0.9rem;
+    text-shadow: 0 1px 1px rgba(0,0,0,0.3);
+    pointer-events: none;
+  }
+
+  .token {
+    width: 68%;
+    height: 68%;
+    justify-self: center;
+    align-self: center;
+    border-radius: 50%;
+    border: 2px solid rgba(0,0,0,0.5);
+    box-shadow: 0 2px 3px rgba(0,0,0,0.4);
+    cursor: default;
+    z-index: 5;
+    position: relative;
+  }
+  .token.hopping {
+    animation: hop-pulse 0.14s ease-out;
+  }
+  @keyframes hop-pulse {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.25); }
+    100% { transform: scale(1); }
+  }
+  .token-count {
+    position: absolute;
+    bottom: -4%;
+    right: -4%;
+    background: var(--ink);
+    color: var(--cream);
+    border: 1px solid var(--gold);
+    border-radius: 50%;
+    min-width: 46%;
+    height: 46%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.6rem;
+    font-weight: bold;
+    line-height: 1;
+  }
+
+  /* when 2+ different colors share a safe cell, they render as a small cluster
+     instead of fully overlapping, so every color stays visible */
+  .cell-cluster {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    grid-template-rows: repeat(2, 1fr);
+    gap: 1px;
+    justify-self: center;
+    align-self: center;
+    width: 90%;
+    height: 90%;
+  }
+  .token.token-mini {
+    width: 100%;
+    height: 100%;
+    justify-self: stretch;
+    align-self: stretch;
+    border-width: 1.5px;
+  }
+  .token.token-mini .token-count {
+    font-size: 0.5rem;
+  }
+  .token.movable {
+    cursor: pointer;
+    animation: bounce 0.6s infinite alternate;
+    z-index: 6;
+  }
+  @keyframes bounce {
+    from { transform: scale(1); }
+    to { transform: scale(1.18); }
+  }
+  .token-red { background: var(--red); }
+  .token-green { background: var(--green); }
+  .token-yellow { background: var(--yellow); }
+  .token-blue { background: var(--blue); }
+
+  /* ---- Controls ---- */
+  #controls {
+    margin-top: 18px;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+  }
+
+  #turnLabel {
+    font-weight: bold;
+    font-size: 1.05rem;
+    padding: 6px 16px;
+    border-radius: 20px;
+    border: 2px solid var(--gold);
+  }
+
+  #dice {
+    width: 56px; height: 56px;
+    background: var(--cream);
+    color: var(--ink);
+    border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.8rem; font-weight: bold;
+    cursor: pointer;
+    border: 3px solid var(--gold);
+    user-select: none;
+    transition: transform 0.15s;
+  }
+  #dice:hover { transform: scale(1.06); }
+  #dice.disabled { opacity: 0.4; cursor: default; pointer-events: none; }
+  #dice.rolling { animation: roll 0.4s linear; }
+  @keyframes roll {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+  }
+
+  #message {
+    margin-top: 10px;
+    min-height: 20px;
+    font-size: 0.9rem;
+    opacity: 0.85;
+    text-align: center;
+  }
+
+  #winnerBanner {
+    display: none;
+    margin-top: 14px;
+    padding: 10px 20px;
+    background: var(--gold);
+    color: var(--ink);
+    border-radius: 20px;
+    font-weight: bold;
+  }
+</style>
+</head>
+<body>
+
+<h1>LUDO</h1>
+
+
+<div id="modeSelect" class="panel">
+  <p>How is everyone joining this match?</p>
+  <div class="choice-row">
+    <button class="choice-btn" id="soloModeBtn">
+      <strong>Local only</strong>
+      Everyone's on this one device, pass-and-play.
+    </button>
+    <button class="choice-btn" id="hostModeBtn">
+      <strong>Host a room</strong>
+      Create a room others can join online.
+    </button>
+    <button class="choice-btn" id="joinModeBtn">
+      <strong>Join a room</strong>
+      Someone gave you a room code.
+    </button>
+  </div>
+</div>
+
+<div id="hostScreen" class="panel" style="display:none;">
+  <div id="hostConfigStep">
+    <p>How many players are at this device?</p>
+    <div class="player-count-row" id="hostLocalCountRow"></div>
+    <p>How many remote seats do you want to open?</p>
+    <div class="player-count-row" id="hostRemoteCountRow"></div>
+    <button class="primary-btn" id="createRoomBtn">Create Room</button>
+  </div>
+
+  <div id="hostRoomInfo" style="display:none;">
+    <div class="room-code" id="roomCodeDisplay">—</div>
+    <div class="status-line" id="hostStatus">Waiting for players to join…</div>
+    <div id="seatList"></div>
+    <button class="primary-btn" id="hostStartGameBtn" disabled>Start Game</button>
+  </div>
+  <span class="back-link" id="hostBackLink">‹ back</span>
+</div>
+
+<div id="joinScreen" class="panel" style="display:none;">
+  <div id="joinConfigStep">
+    <p>Enter the room code you were given:</p>
+    <input id="joinCodeInput" placeholder="room code">
+    <button class="primary-btn" id="joinBtn">Connect</button>
+  </div>
+  <div class="status-line" id="joinStatus"></div>
+  <span class="back-link" id="joinBackLink">‹ back</span>
+</div>
+
+<div id="setup" class="panel" style="display:none;">
+  <p>How many players are sharing this device right now?</p>
+  <div class="player-count-row" id="countRow"></div>
+  <button id="startBtn" class="primary-btn">Start Game</button>
+</div>
+
+<div id="game">
+  <div id="boardWrap"><div id="board"></div></div>
+  <div id="controls">
+    <div id="turnLabel"></div>
+    <div id="dice">🎲</div>
+  </div>
+  <div id="message"></div>
+  <div id="winnerBanner"></div>
+</div>
+
+<script>
+/* ============================================================
+   LUDO — LOCAL GAME LOGIC
+   ------------------------------------------------------------
+   The big idea: the board is a 15x15 grid. There's one shared
+   "common path" of 52 cells that every color's tokens travel
+   around, plus a private 6-cell "home column" per color that
+   only that color's tokens can enter, leading to the center.
+
+   Every token's position is stored as a single number, its
+   "step", from -1 (still in the yard) to 56 (arrived home):
+     -1        -> sitting in the yard, not yet on the board
+     0 .. 50   -> somewhere on the 51 shared cells this color
+                  travels (a different physical cell for each
+                  color, since they start in different places)
+     51 .. 56  -> in this color's own private home column
+     56        -> the last cell = finished
+
+   Because every player's logic works off the same "step"
+   number and the same shared path array, we never have to
+   special-case red vs blue vs anyone else — the geometry is
+   just looked up from tables below.
+   ============================================================ */
+
+// The 52 shared cells, in board (row, col) coordinates, walked
+// in order. Index 0 is where a red token first enters the board.
+const COMMON_PATH = [
+  [6,1],[6,2],[6,3],[6,4],[6,5],[5,6],[4,6],[3,6],[2,6],[1,6],[0,6],[0,7],[0,8],
+  [1,8],[2,8],[3,8],[4,8],[5,8],[6,9],[6,10],[6,11],[6,12],[6,13],[6,14],[7,14],
+  [8,14],[8,13],[8,12],[8,11],[8,10],[8,9],[9,8],[10,8],[11,8],[12,8],[13,8],
+  [14,8],[14,7],[14,6],[13,6],[12,6],[11,6],[10,6],[9,6],[8,5],[8,4],[8,3],[8,2],
+  [8,1],[8,0],[7,0],[6,0]
+];
+
+const PLAYER_CONFIG = {
+  red:    { startIdx: 0,  homeCol: [[7,1],[7,2],[7,3],[7,4],[7,5],[7,6]], yard: [[1,1],[1,4],[4,1],[4,4]] },
+  green:  { startIdx: 13, homeCol: [[1,7],[2,7],[3,7],[4,7],[5,7],[6,7]], yard: [[1,10],[1,13],[4,10],[4,13]] },
+  yellow: { startIdx: 26, homeCol: [[7,13],[7,12],[7,11],[7,10],[7,9],[7,8]], yard: [[10,10],[10,13],[13,10],[13,13]] },
+  blue:   { startIdx: 39, homeCol: [[13,7],[12,7],[11,7],[10,7],[9,7],[8,7]], yard: [[10,1],[10,4],[13,1],[13,4]] },
+};
+
+const COLOR_ORDER = ['red', 'green', 'yellow', 'blue'];
+const EXTRA_SAFE_INDICES = [8, 21, 34, 47]; // star cells, besides the 4 colored start squares
+const SAFE_COMMON_INDICES = new Set([0, 13, 26, 39, ...EXTRA_SAFE_INDICES]); // starts + stars
+
+let numPlayers = 3;
+let activeColors = [];
+let players = {};       // color -> { tokens: [{step}], name }
+let currentTurn = 0;    // index into activeColors
+let diceValue = null;
+let rolling = false;
+let extraTurnStreak = 0;
+let winnerColor = null;
+let animating = false;
+
+function animateTokenSteps(color, tokenIndex, fromStep, rawTarget, callback) {
+  const cappedTarget = Math.min(rawTarget, 56);
+  const stepsToVisit = [];
+
+  if (fromStep === -1) {
+    stepsToVisit.push(cappedTarget); // leaving the yard is a single hop onto the start square
+  } else {
+    for (let s = fromStep + 1; s <= cappedTarget; s++) stepsToVisit.push(s);
+  }
+  if (stepsToVisit.length === 0) stepsToVisit.push(cappedTarget);
+
+  // hide whatever currently represents this token — it might be a lone piece,
+  // part of a same-color stack, or nested inside a multi-color safe-cell cluster
+  const existing = findTokenElement(color, tokenIndex);
+  if (existing) existing.style.visibility = 'hidden';
+
+  // a plain top-level "ghost" token drives the hop animation — this sidesteps
+  // ever having to reposition something that might be nested inside a
+  // cluster's own small 2x2 grid, which uses different coordinates entirely
+  const ghost = document.createElement('div');
+  ghost.className = `token token-${color}`;
+  const [startR, startC] = fromStep === -1
+    ? PLAYER_CONFIG[color].yard[tokenIndex]
+    : stepToCoord(color, fromStep);
+  ghost.style.gridColumn = startC + 1;
+  ghost.style.gridRow = startR + 1;
+  boardEl.appendChild(ghost);
+
+  let i = 0;
+  function hop() {
+    if (i >= stepsToVisit.length) { ghost.remove(); callback(); return; }
+    const [r, c] = stepToCoord(color, stepsToVisit[i]);
+    ghost.style.gridColumn = c + 1;
+    ghost.style.gridRow = r + 1;
+    ghost.classList.add('hopping');
+    setTimeout(() => ghost.classList.remove('hopping'), 140);
+    i++;
+    setTimeout(hop, 160);
+  }
+  hop();
+}
+
+// role tells this browser what it's allowed to act on:
+//  'solo'   -> everyone shares this device (old behavior, unchanged)
+//  'host'   -> this device holds the real game state; some seats are local
+//              (played right here) and some belong to remote browsers
+//  'remote' -> this device only mirrors state from the host and controls
+//              exactly one color, myColor
+let role = 'solo';
+let myColor = null;       // set when role === 'remote'
+let localColors = [];     // set when role === 'host': which colors are played on THIS device
+let peer = null;          // our PeerJS instance
+let conn = null;          // remote's single connection to the host
+let remoteSeats = [];     // host only: [{ conn, color }]
+let hostLocalCount = 1;
+let remoteCount = 1;      // host only: how many remote seats the host chose to open
+
+// ---------- Connection mode screens ----------
+
+const modeSelect = document.getElementById('modeSelect');
+const hostScreen = document.getElementById('hostScreen');
+const joinScreen = document.getElementById('joinScreen');
+const setupScreen = document.getElementById('setup');
+
+function showOnly(panel) {
+  [modeSelect, hostScreen, joinScreen, setupScreen].forEach(p => p.style.display = 'none');
+  panel.style.display = 'block';
+}
+
+document.getElementById('soloModeBtn').onclick = () => { role = 'solo'; showOnly(setupScreen); };
+document.getElementById('hostModeBtn').onclick = () => {
+  if (!peerLibraryAvailable()) return;
+  showOnly(hostScreen);
+};
+document.getElementById('joinModeBtn').onclick = () => {
+  if (!peerLibraryAvailable()) return;
+  showOnly(joinScreen);
+};
+
+function peerLibraryAvailable() {
+  if (typeof Peer !== 'undefined') return true;
+  alert(
+    "Couldn't load the online-connection library (PeerJS).\n\n" +
+    "This usually means there's no internet access right now, or something " +
+    "is blocking unpkg.com. Local pass-and-play still works fine — try " +
+    "'Local only', or reload once you're back online."
+  );
+  return false;
+}
+
+if (typeof Peer === 'undefined') {
+  const hostBtn = document.getElementById('hostModeBtn');
+  const joinBtn = document.getElementById('joinModeBtn');
+  [hostBtn, joinBtn].forEach(btn => {
+    btn.style.opacity = '0.4';
+    const note = document.createElement('span');
+    note.style.cssText = 'display:block; font-weight:normal; font-size:0.75rem; color:#e08787; margin-top:2px;';
+    note.textContent = 'unavailable — online library failed to load';
+    btn.appendChild(note);
+  });
+}
+
+document.getElementById('hostBackLink').onclick = () => { teardownConnection(); showOnly(modeSelect); };
+document.getElementById('joinBackLink').onclick = () => { teardownConnection(); showOnly(modeSelect); };
+
+function teardownConnection() {
+  if (peer) { peer.destroy(); }
+  peer = null; conn = null; remoteSeats = [];
+}
+
+// --- Host side ---
+
+const hostLocalCountRow = document.getElementById('hostLocalCountRow');
+[1, 2, 3, 4].forEach(n => {
+  const btn = document.createElement('button');
+  btn.className = 'count-btn' + (n === hostLocalCount ? ' active' : '');
+  btn.textContent = n;
+  btn.onclick = () => {
+    hostLocalCount = n;
+    [...hostLocalCountRow.children].forEach(c => c.classList.remove('active'));
+    btn.classList.add('active');
+    refreshRemoteCountOptions();
+    refreshCreateBtnState();
+  };
+  hostLocalCountRow.appendChild(btn);
+});
+[...hostLocalCountRow.children][0].classList.add('active'); // default 1
+
+const hostRemoteCountRow = document.getElementById('hostRemoteCountRow');
+[0, 1, 2, 3].forEach(n => {
+  const btn = document.createElement('button');
+  btn.className = 'count-btn' + (n === remoteCount ? ' active' : '');
+  btn.textContent = n;
+  btn.dataset.n = n;
+  btn.onclick = () => {
+    if (btn.disabled) return;
+    remoteCount = n;
+    [...hostRemoteCountRow.children].forEach(c => c.classList.remove('active'));
+    btn.classList.add('active');
+    refreshCreateBtnState();
+  };
+  hostRemoteCountRow.appendChild(btn);
+});
+[...hostRemoteCountRow.children][1].classList.add('active'); // default 1
+
+function refreshCreateBtnState() {
+  document.getElementById('createRoomBtn').disabled = (hostLocalCount + remoteCount) < 2;
+}
+refreshCreateBtnState();
+
+function refreshRemoteCountOptions() {
+  const maxRemote = 4 - hostLocalCount;
+  [...hostRemoteCountRow.children].forEach(btn => {
+    const n = Number(btn.dataset.n);
+    btn.disabled = n > maxRemote;
+  });
+  if (remoteCount > maxRemote) {
+    remoteCount = maxRemote;
+    [...hostRemoteCountRow.children].forEach(c => c.classList.toggle('active', Number(c.dataset.n) === remoteCount));
+  }
+}
+
+document.getElementById('createRoomBtn').onclick = () => {
+  role = 'host';
+  localColors = COLOR_ORDER.slice(0, hostLocalCount);
+  document.getElementById('hostConfigStep').style.display = 'none';
+  document.getElementById('hostRoomInfo').style.display = 'block';
+
+  const code = 'ludo-' + Math.random().toString(36).slice(2, 7);
+  peer = new Peer(code);
+
+  peer.on('open', id => {
+    document.getElementById('roomCodeDisplay').textContent = id;
+    renderSeatList();
+  });
+
+  peer.on('connection', incomingConn => {
+    if (remoteSeats.length >= remoteCount) {
+      incomingConn.on('open', () => incomingConn.send({ type: 'full' }));
+      return;
+    }
+    const nextColor = COLOR_ORDER[localColors.length + remoteSeats.length];
+    remoteSeats.push({ conn: incomingConn, color: nextColor });
+    incomingConn.on('open', () => incomingConn.send({ type: 'assign', color: nextColor }));
+    incomingConn.on('data', msg => handleHostMessage(nextColor, msg));
+    incomingConn.on('close', () => {
+      remoteSeats = remoteSeats.filter(s => s.conn !== incomingConn);
+      renderSeatList();
+    });
+    renderSeatList();
+  });
+
+  peer.on('error', err => {
+    document.getElementById('hostStatus').textContent = 'Connection error: ' + err.type;
+    document.getElementById('hostStatus').className = 'status-line error';
+  });
+};
+
+document.getElementById('roomCodeDisplay').onclick = function() {
+  navigator.clipboard?.writeText(this.textContent);
+  const original = this.textContent;
+  this.textContent = 'copied!';
+  setTimeout(() => { this.textContent = original; }, 800);
+};
+
+function renderSeatList() {
+  const list = document.getElementById('seatList');
+  list.innerHTML = '';
+
+  localColors.forEach((color, i) => {
+    const row = document.createElement('div');
+    row.className = 'seat-row';
+    row.innerHTML = `<span class="seat-dot" style="background:${colorHex(color)}"></span> ${capitalize(color)} — this device (player ${i + 1})`;
+    list.appendChild(row);
+  });
+  remoteSeats.forEach(seat => {
+    const row = document.createElement('div');
+    row.className = 'seat-row';
+    row.innerHTML = `<span class="seat-dot" style="background:${colorHex(seat.color)}"></span> ${capitalize(seat.color)} — connected remotely`;
+    list.appendChild(row);
+  });
+  const openSeats = remoteCount - remoteSeats.length;
+  for (let i = 0; i < openSeats; i++) {
+    const row = document.createElement('div');
+    row.className = 'seat-row pending';
+    row.textContent = 'Open remote seat — waiting for someone to join…';
+    list.appendChild(row);
+  }
+
+  const totalSeats = localColors.length + remoteSeats.length;
+  document.getElementById('hostStatus').textContent =
+    openSeats > 0
+      ? `${openSeats} remote seat${openSeats > 1 ? 's' : ''} still open — start now or wait for them.`
+      : 'All seats filled — ready to start!';
+  document.getElementById('hostStartGameBtn').disabled = totalSeats < 2;
+}
+
+document.getElementById('hostStartGameBtn').onclick = () => {
+  activeColors = localColors.concat(remoteSeats.map(s => s.color));
+  players = {};
+  activeColors.forEach(color => {
+    players[color] = { tokens: [{step:-1},{step:-1},{step:-1},{step:-1}] };
+  });
+  currentTurn = 0;
+  diceValue = null;
+
+  remoteSeats.forEach(seat => {
+    seat.conn.send({ type: 'start', color: seat.color, activeColors, state: serializeState() });
+  });
+
+  showOnly(document.getElementById('game'));
+  document.getElementById('game').style.display = 'flex';
+  buildBoard();
+  render();
+  updateTurnLabel();
+};
+
+// --- Join side ---
+
+document.getElementById('joinBtn').onclick = () => {
+  const code = document.getElementById('joinCodeInput').value.trim();
+  if (!code) return;
+  role = 'remote';
+  peer = new Peer();
+  document.getElementById('joinConfigStep').style.display = 'none';
+
+  peer.on('open', () => {
+    conn = peer.connect(code);
+    document.getElementById('joinStatus').textContent = 'Connecting…';
+
+    conn.on('open', () => {
+      document.getElementById('joinStatus').textContent = 'Connected — waiting for host to start the game…';
+      document.getElementById('joinStatus').className = 'status-line connected';
+    });
+
+    conn.on('data', msg => handleRemoteMessage(msg));
+
+    conn.on('close', () => {
+      document.getElementById('joinStatus').textContent = 'Disconnected from host.';
+      document.getElementById('joinStatus').className = 'status-line error';
+    });
+  });
+
+  peer.on('error', err => {
+    document.getElementById('joinStatus').textContent = 'Connection error: ' + err.type;
+    document.getElementById('joinStatus').className = 'status-line error';
+  });
+};
+
+function handleRemoteMessage(msg) {
+  if (msg.type === 'rolling') {
+    rolling = true;
+    diceEl.classList.add('rolling');
+    refreshDiceEnabled();
+  } else if (msg.type === 'assign') {
+    myColor = msg.color;
+    document.getElementById('joinStatus').textContent =
+      `You'll play ${capitalize(myColor)} — waiting for host to start the game…`;
+  } else if (msg.type === 'full') {
+    document.getElementById('joinStatus').textContent = 'Room is full.';
+    document.getElementById('joinStatus').className = 'status-line error';
+  } else if (msg.type === 'start') {
+    myColor = msg.color;
+    activeColors = msg.activeColors;
+    applyState(msg.state);
+    document.getElementById('game').style.display = 'flex';
+    [modeSelect, hostScreen, joinScreen, setupScreen].forEach(p => p.style.display = 'none');
+    buildBoard();
+    render();
+    updateTurnLabel();
+  } else if (msg.type === 'state') {
+    const oldPlayers = players;
+    const oldColors = activeColors;
+    activeColors = msg.activeColors;
+
+    const moved = findMovedToken(oldPlayers, msg.state.players, oldColors);
+    if (moved && !animating) {
+      animating = true;
+      animateTokenSteps(moved.color, moved.tokenIndex, moved.fromStep, moved.toStep, () => {
+        animating = false;
+        applyState(msg.state);
+        render();
+        updateTurnLabel();
+        if (winnerColor) showWinnerBanner(winnerColor);
+      });
+    } else {
+      applyState(msg.state);
+      render();
+      updateTurnLabel();
+      if (winnerColor) showWinnerBanner(winnerColor);
+    }
+  }
+}
+
+// find a token that moved forward between two player-state snapshots, for animation purposes
+// (a capture only ever resets a step to -1, so a step that went up is always a genuine move)
+function findMovedToken(oldPlayers, newPlayersRaw, colors) {
+  for (const color of colors) {
+    const oldToks = oldPlayers?.[color]?.tokens;
+    const newToks = newPlayersRaw?.[color]?.tokens;
+    if (!oldToks || !newToks) continue;
+    for (let i = 0; i < newToks.length; i++) {
+      const fromStep = oldToks[i] ? oldToks[i].step : -1;
+      const toStep = newToks[i].step;
+      if (toStep > fromStep && toStep <= 56) {
+        return { color, tokenIndex: i, fromStep, toStep };
+      }
+    }
+  }
+  return null;
+}
+
+// --- Shared state serialization (used for host -> remote sync) ---
+
+function serializeState() {
+  const out = {};
+  activeColors.forEach(color => {
+    out[color] = { tokens: players[color].tokens.map(t => ({ step: t.step })) };
+  });
+  return {
+    players: out,
+    currentTurn,
+    diceValue,
+    message: document.getElementById('message').textContent,
+    winnerColor
+  };
+}
+
+function applyState(state) {
+  players = {};
+  Object.keys(state.players).forEach(color => {
+    players[color] = { tokens: state.players[color].tokens.map(t => ({ step: t.step })) };
+  });
+  currentTurn = state.currentTurn;
+  diceValue = state.diceValue;
+  winnerColor = state.winnerColor || null;
+  setMessage(state.message || '');
+  rolling = false;
+  diceEl.classList.remove('rolling');
+  updateDiceFace();
+}
+
+function broadcastState() {
+  if (role !== 'host') return;
+  const state = serializeState();
+  remoteSeats.forEach(seat => {
+    if (seat.conn && seat.conn.open) seat.conn.send({ type: 'state', activeColors, state });
+  });
+}
+
+function broadcastRolling() {
+  if (role !== 'host') return;
+  remoteSeats.forEach(seat => {
+    if (seat.conn && seat.conn.open) seat.conn.send({ type: 'rolling' });
+  });
+}
+
+// host applies a request coming from a specific remote seat, but only if
+// it's genuinely that seat's turn — never trust the client blindly
+function handleHostMessage(seatColor, msg) {
+  if (activeColors[currentTurn] !== seatColor) return;
+  if (msg.type === 'rollRequest') rollDice();
+  else if (msg.type === 'moveRequest') moveToken(seatColor, msg.tokenIndex);
+}
+
+// ---------- Setup screen (solo mode) ----------
+
+const countRow = document.getElementById('countRow');
+[2, 3, 4].forEach(n => {
+  const btn = document.createElement('button');
+  btn.className = 'count-btn' + (n === numPlayers ? ' active' : '');
+  btn.textContent = n;
+  btn.onclick = () => {
+    numPlayers = n;
+    [...countRow.children].forEach(c => c.classList.remove('active'));
+    btn.classList.add('active');
+  };
+  countRow.appendChild(btn);
+});
+[...countRow.children][1].classList.add('active'); // default 3
+
+document.getElementById('startBtn').onclick = startGame;
+
+function startGame() {
+  activeColors = COLOR_ORDER.slice(0, numPlayers);
+  players = {};
+  activeColors.forEach(color => {
+    players[color] = { tokens: [{step:-1},{step:-1},{step:-1},{step:-1}] };
+  });
+  currentTurn = 0;
+  diceValue = null;
+
+  document.getElementById('setup').style.display = 'none';
+  document.getElementById('game').style.display = 'flex';
+
+  buildBoard();
+  render();
+  updateTurnLabel();
+}
+
+// ---------- Board construction (DOM) ----------
+
+const boardEl = document.getElementById('board');
+
+// corner block bounds: [rowStart, rowEnd, colStart, colEnd] (inclusive, 0-indexed)
+const YARD_BOUNDS = {
+  red:    [0,5,0,5],
+  green:  [0,5,9,14],
+  yellow: [9,14,9,14],
+  blue:   [9,14,0,5],
+};
+
+function buildBoard() {
+  boardEl.innerHTML = '';
+  const cellEls = [];
+  for (let r = 0; r < 15; r++) {
+    cellEls[r] = [];
+    for (let c = 0; c < 15; c++) {
+      const div = document.createElement('div');
+      div.className = 'cell';
+      div.style.gridColumn = c + 1;
+      div.style.gridRow = r + 1;
+      div.dataset.r = r; div.dataset.c = c;
+      cellEls[r][c] = div;
+      boardEl.appendChild(div);
+    }
+  }
+
+  // classify every cell — a corner yard block (colored border ring, cream
+  // interior), the center 3x3 (left transparent, a pinwheel overlay covers
+  // it separately), the cross-shaped track, or dead space (hidden).
+  for (let r = 0; r < 15; r++) {
+    for (let c = 0; c < 15; c++) {
+      const el = cellEls[r][c];
+      let placed = false;
+
+      for (const [color, [r0, r1, c0, c1]] of Object.entries(YARD_BOUNDS)) {
+        if (r >= r0 && r <= r1 && c >= c0 && c <= c1) {
+          const lr = r - r0, lc = c - c0;
+          const isBorder = (lr === 0 || lr === 5 || lc === 0 || lc === 5);
+          el.classList.add(isBorder ? 'yard-' + color : 'track');
+          placed = true;
+          break;
+        }
+      }
+      if (placed) continue;
+
+      const inCenter = r >= 6 && r <= 8 && c >= 6 && c <= 8;
+      if (inCenter) { continue; } // left blank; pinwheel div covers this area
+
+      const inCross = (r >= 6 && r <= 8) || (c >= 6 && c <= 8);
+      el.classList.add(inCross ? 'track' : 'hidden');
+    }
+  }
+
+  // pinwheel overlay for the center (single spanning grid item, no absolute positioning)
+  const pinwheel = document.createElement('div');
+  pinwheel.id = 'centerPinwheel';
+  boardEl.appendChild(pinwheel);
+
+  // start squares + home columns — drawn for all 4 colors always, like a real board,
+  // regardless of how many are actually in play
+  COLOR_ORDER.forEach(color => {
+    const cfg = PLAYER_CONFIG[color];
+    const [sr, sc] = COMMON_PATH[cfg.startIdx];
+    cellEls[sr][sc].classList.add('start-' + color);
+    cfg.homeCol.forEach(([r, c]) => cellEls[r][c].classList.add('home-' + color));
+  });
+
+  // the 4 extra star safe-cells (besides the 4 colored start squares) —
+  // marked with a star icon; tokens of any color are safe from capture here
+  EXTRA_SAFE_INDICES.forEach(idx => {
+    const [r, c] = COMMON_PATH[idx];
+    cellEls[r][c].classList.add('safe-star');
+  });
+}
+
+// ---------- Geometry lookup ----------
+
+function stepToCoord(color, step) {
+  const cfg = PLAYER_CONFIG[color];
+  if (step < 0) return null;
+  if (step <= 50) {
+    const idx = (cfg.startIdx + step) % 52;
+    return COMMON_PATH[idx];
+  }
+  if (step <= 56) {
+    return cfg.homeCol[step - 51];
+  }
+  return null; // finished, no board coord (sits in center)
+}
+
+function isSafeStep(color, step) {
+  if (step < 0 || step > 50) return true; // home column & yard always safe
+  const cfg = PLAYER_CONFIG[color];
+  const idx = (cfg.startIdx + step) % 52;
+  return SAFE_COMMON_INDICES.has(idx);
+}
+
+// ---------- Rendering ----------
+
+function render() {
+  document.querySelectorAll('.token').forEach(t => t.remove());
+
+  // cells on the shared 52-cell path can hold tokens of DIFFERENT colors at
+  // once (only there — yard, home columns, and the finish are color-private),
+  // so those need to be collected across all colors before drawing anything
+  const sharedPathCells = new Map(); // "r,c" -> { r, c, byColor: Map(color -> indices[]) }
+
+  activeColors.forEach(color => {
+    const cfg = PLAYER_CONFIG[color];
+    const groups = new Map(); // positionKey -> { r, c, indices: [] } — yard/home-column/finished only
+
+    players[color].tokens.forEach((tok, i) => {
+      if (tok.step >= 0 && tok.step <= 50) {
+        const [r, c] = stepToCoord(color, tok.step);
+        const key = r + ',' + c;
+        if (!sharedPathCells.has(key)) sharedPathCells.set(key, { r, c, byColor: new Map() });
+        const byColor = sharedPathCells.get(key).byColor;
+        if (!byColor.has(color)) byColor.set(color, []);
+        byColor.get(color).push(i);
+        return;
+      }
+
+      let r, c, key;
+      if (tok.step === -1) {
+        [r, c] = cfg.yard[i];
+        key = 'yard-' + i;
+      } else if (tok.step >= 57) {
+        const centerOffsets = { red: [7,6], green: [6,7], yellow: [7,8], blue: [8,7] };
+        [r, c] = centerOffsets[color];
+        key = 'finished';
+      } else {
+        [r, c] = stepToCoord(color, tok.step); // private home column, steps 51–56
+        key = r + ',' + c;
+      }
+      if (!groups.has(key)) groups.set(key, { r, c, indices: [] });
+      groups.get(key).indices.push(i);
+    });
+
+    groups.forEach(group => renderTokenGroup(color, group.indices, group.r, group.c));
+  });
+
+  sharedPathCells.forEach(cell => {
+    const colors = [...cell.byColor.keys()];
+    if (colors.length === 1) {
+      renderTokenGroup(colors[0], cell.byColor.get(colors[0]), cell.r, cell.c);
+    } else {
+      renderMultiColorCluster(cell.byColor, cell.r, cell.c);
+    }
+  });
+
+  applyMovableHighlights();
+}
+
+function renderTokenGroup(color, indices, r, c) {
+  const el = document.createElement('div');
+  el.className = `token token-${color}`;
+  el.dataset.color = color;
+  el.dataset.indices = indices.join(',');
+  el.style.gridColumn = c + 1;
+  el.style.gridRow = r + 1;
+  if (indices.length > 1) {
+    const badge = document.createElement('span');
+    badge.className = 'token-count';
+    badge.textContent = indices.length;
+    el.appendChild(badge);
+  }
+  boardEl.appendChild(el);
+  return el;
+}
+
+function renderMultiColorCluster(byColorMap, r, c) {
+  const wrapper = document.createElement('div');
+  wrapper.className = 'cell-cluster';
+  wrapper.style.gridColumn = c + 1;
+  wrapper.style.gridRow = r + 1;
+
+  byColorMap.forEach((indices, color) => {
+    const el = document.createElement('div');
+    el.className = `token token-${color} token-mini`;
+    el.dataset.color = color;
+    el.dataset.indices = indices.join(',');
+    if (indices.length > 1) {
+      const badge = document.createElement('span');
+      badge.className = 'token-count';
+      badge.textContent = indices.length;
+      el.appendChild(badge);
+    }
+    wrapper.appendChild(el);
+  });
+
+  boardEl.appendChild(wrapper);
+}
+
+function findTokenElement(color, tokenIndex) {
+  const els = document.querySelectorAll(`.token[data-color="${color}"]`);
+  for (const el of els) {
+    const indices = el.dataset.indices.split(',').map(Number);
+    if (indices.includes(tokenIndex)) return el;
+  }
+  return null;
+}
+
+function updateTurnLabel() {
+  const color = activeColors[currentTurn];
+  const label = document.getElementById('turnLabel');
+  label.textContent = capitalize(color) + "'s turn";
+  label.style.color = colorHex(color);
+  label.style.borderColor = colorHex(color);
+
+  refreshDiceEnabled();
+  if (!canIActOn(color) && diceValue === null && role !== 'solo') {
+    setMessage(`Waiting for ${capitalize(color)} to roll…`);
+  }
+}
+
+function capitalize(s) { return s[0].toUpperCase() + s.slice(1); }
+function colorHex(color) {
+  return { red: '#d64545', green: '#3fa34d', yellow: '#e0b93d', blue: '#3d7fe0' }[color];
+}
+
+function setMessage(msg) {
+  document.getElementById('message').textContent = msg;
+}
+
+// can THIS browser act on a given color's turn right now?
+function canIActOn(color) {
+  if (role === 'solo') return true;
+  if (role === 'host') return localColors.includes(color);
+  if (role === 'remote') return myColor === color;
+  return false;
+}
+
+function refreshDiceEnabled() {
+  const color = activeColors[currentTurn];
+  const mine = canIActOn(color);
+  diceEl.classList.toggle('disabled', !mine || diceValue !== null || rolling || animating);
+}
+
+// ---------- Dice + turn flow ----------
+
+const diceEl = document.getElementById('dice');
+diceEl.onclick = () => {
+  const color = activeColors[currentTurn];
+  if (!canIActOn(color)) return;
+  if (diceValue !== null || rolling || animating) return;
+
+  if (role === 'remote') {
+    rolling = true;
+    diceEl.classList.add('rolling');
+    refreshDiceEnabled();
+    conn.send({ type: 'rollRequest' });
+    return;
+  }
+  rollDice();
+};
+
+function rollDice() {
+  if (rolling || diceValue !== null) return;
+  rolling = true;
+  diceEl.classList.add('rolling');
+  if (role === 'host') broadcastRolling();
+
+  setTimeout(() => {
+    rolling = false;
+    diceEl.classList.remove('rolling');
+    diceValue = 1 + Math.floor(Math.random() * 6);
+    updateDiceFace();
+
+    const movable = getMovableTokens(activeColors[currentTurn], diceValue);
+    if (movable.length === 0) {
+      setMessage(`Rolled ${diceValue} — no valid move.`);
+      refreshDiceEnabled();
+      if (role === 'host') broadcastState(); // let everyone see the rolled number first
+
+      setTimeout(() => {
+        diceValue = null;
+        updateDiceFace();
+        handleSixOrPass(false);
+        if (role === 'host') broadcastState();
+      }, 900);
+    } else {
+      setMessage(`Rolled ${diceValue} — pick a glowing token to move.`);
+      applyMovableHighlights();
+      refreshDiceEnabled();
+      if (role === 'host') broadcastState();
+    }
+  }, 400);
+}
+
+function updateDiceFace() {
+  diceEl.textContent = diceValue !== null ? diceValue : '🎲';
+}
+
+function getMovableTokens(color, dice) {
+  const result = [];
+  players[color].tokens.forEach((tok, i) => {
+    if (tok.step === -1) {
+      if (dice === 6) result.push(i);
+    } else if (tok.step >= 0 && tok.step < 56) {
+      if (tok.step + dice <= 56) result.push(i);
+    }
+  });
+  return result;
+}
+
+function applyMovableHighlights() {
+  document.querySelectorAll('.token').forEach(el => el.classList.remove('movable'));
+  if (diceValue === null || animating) return;
+  const color = activeColors[currentTurn];
+  if (!canIActOn(color)) return; // not your turn to act — no clickable pieces for you
+  const movable = getMovableTokens(color, diceValue);
+
+  document.querySelectorAll(`.token[data-color="${color}"]`).forEach(el => {
+    const indices = el.dataset.indices.split(',').map(Number);
+    const movableHere = indices.filter(i => movable.includes(i));
+    if (movableHere.length > 0) {
+      el.classList.add('movable');
+      const chosen = movableHere[0];
+      el.onclick = () => {
+        if (role === 'remote') {
+          conn.send({ type: 'moveRequest', tokenIndex: chosen });
+        } else {
+          moveToken(color, chosen);
+        }
+      };
+    }
+  });
+}
+
+function moveToken(color, tokenIndex) {
+  if (diceValue === null || animating) return;
+  const tok = players[color].tokens[tokenIndex];
+  const dice = diceValue;
+  const fromStep = tok.step;
+  const rawTarget = (fromStep === -1 && dice === 6) ? 0 : fromStep + dice;
+
+  diceValue = null;
+  animating = true;
+  updateDiceFace();
+  document.querySelectorAll('.token').forEach(el => el.classList.remove('movable'));
+  refreshDiceEnabled();
+
+  animateTokenSteps(color, tokenIndex, fromStep, rawTarget, () => {
+    finishMove(color, tokenIndex, rawTarget, dice);
+  });
+}
+
+function finishMove(color, tokenIndex, rawTarget, dice) {
+  animating = false;
+  const tok = players[color].tokens[tokenIndex];
+  let gotExtraTurn = false;
+  let captured = false;
+
+  tok.step = rawTarget;
+
+  // capture check — only on shared path cells, not safe cells, not home column
+  if (tok.step >= 0 && tok.step <= 50) {
+    const myIdx = (PLAYER_CONFIG[color].startIdx + tok.step) % 52;
+    if (!SAFE_COMMON_INDICES.has(myIdx)) {
+      activeColors.forEach(otherColor => {
+        if (otherColor === color) return;
+        players[otherColor].tokens.forEach(otherTok => {
+          if (otherTok.step >= 0 && otherTok.step <= 50) {
+            const otherIdx = (PLAYER_CONFIG[otherColor].startIdx + otherTok.step) % 52;
+            if (otherIdx === myIdx) {
+              otherTok.step = -1;
+              captured = true;
+            }
+          }
+        });
+      });
+    }
+  }
+
+  if (tok.step === 56) {
+    tok.step = 57; // finished
+    gotExtraTurn = true;
+  }
+  if (dice === 6) gotExtraTurn = true;
+  if (captured) gotExtraTurn = true;
+
+  render();
+
+  if (captured) setMessage('Captured! Extra turn.');
+  else if (tok.step === 57) setMessage('Token reached home! Extra turn.');
+  else setMessage('');
+
+  if (checkWinner(color)) {
+    if (role === 'host') broadcastState();
+    return;
+  }
+
+  handleSixOrPass(gotExtraTurn);
+  if (role === 'host') broadcastState();
+}
+
+function handleSixOrPass(gotExtraTurn) {
+  if (gotExtraTurn) {
+    extraTurnStreak++;
+    if (extraTurnStreak >= 3) {
+      // three sixes/extra turns in a row forfeits the streak, classic rule
+      extraTurnStreak = 0;
+      setMessage('Three in a row — turn forfeited!');
+      nextTurn();
+    }
+    // else same player goes again, dice already reset to null above
+  } else {
+    extraTurnStreak = 0;
+    nextTurn();
+  }
+  updateTurnLabel();
+}
+
+function nextTurn() {
+  currentTurn = (currentTurn + 1) % activeColors.length;
+}
+
+function checkWinner(color) {
+  const allHome = players[color].tokens.every(t => t.step === 57);
+  if (allHome) {
+    winnerColor = color;
+    showWinnerBanner(color);
+    return true;
+  }
+  return false;
+}
+
+function showWinnerBanner(color) {
+  const banner = document.getElementById('winnerBanner');
+  banner.style.display = 'block';
+  banner.textContent = `${capitalize(color)} wins! 🎉`;
+  diceEl.classList.add('disabled');
+}
+
+</script>
+</body>
+</html>
